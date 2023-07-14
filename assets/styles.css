@@ -1,0 +1,20 @@
+/* App layout */
+html {
+    overflow: scroll;
+    overflow-x: hidden;
+}
+
+::-webkit-scrollbar {
+    width: 0;  /* Remove scrollbar space */
+    background: transparent;  /* Optional: just make scrollbar invisible */
+}
+
+::-webkit-scrollbar-thumb {
+    background: #FF0000;
+}
+
+.app-layout {
+    padding-top: 2%;
+    padding-left: 4%;
+    padding-right: 4%;
+}
