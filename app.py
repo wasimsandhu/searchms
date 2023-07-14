@@ -1,12 +1,12 @@
-import sys, webbrowser, ast
+import sys, webbrowser, time, json, ast
+from plots import *
 
-from dash import Dash, html, dcc, callback, Output, Input
+from dash import Dash, html, dcc, Output, Input, State, ctx
 from dash.exceptions import PreventUpdate
 import dash_bootstrap_components as dbc
 import pandas as pd
 import numpy as np
-import matchms
-from plots import *
+import matchms as ms
 
 local_stylesheet = {
     "href": "https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap",
@@ -20,7 +20,7 @@ app = Dash(__name__, title="SearchMS", suppress_callback_exceptions=True,
 def serve_layout():
 
     return html.Div([
-        
+
         # Navigation bar
         dbc.Navbar(color="dark", dark=True, children=[
             dbc.Container(style={"height": "50px"}, children=[
@@ -48,6 +48,20 @@ def serve_layout():
                             dbc.Textarea(rows=5, id="mass-spectrum-input", placeholder="Enter your mass spectrum here"),
                             dbc.FormFeedback("Looks good!", type="valid"),
                             dbc.FormFeedback("Please ensure the peak table of your mass spectrum is in one of the accepted formats.", type="invalid"),
+                        ]),
+                    ]), html.Br(),
+                    
+                    # Plot for user-inputted mass spectrum
+                    html.Div(id="plot-container", className="plot-container", style={"display": "none"}, children=[
+                        dcc.Graph(id="experimental-spectrum")
+                    ]),
+                    
+                    # Input group for loading reference library
+                    html.Div([
+                        dbc.Label("Molecule name (optional)"),
+                        dbc.InputGroup([
+                            dbc.Input(id="molecule-name", placeholder="Enter molecule name, if known"),
+                            dbc.FormFeedback("Looks good!", type="valid")
                         ]),
                     ]), html.Br(),
                     
@@ -82,38 +96,133 @@ def serve_layout():
                         dbc.FormFeedback("Looks good!", type="valid")
                     ]), html.Br(),
                     
-                    # Plot for user-inputted mass spectrum
-                    html.Div(className="plot-container", children=[
-                        dcc.Graph(id="experimental-spectrum"),
-                    ])
+                    html.Div(className="d-grid gap-2", children=[
+                        dbc.Button("Search", id="search-button", color="primary")
+                    ]),
                 ]),
                 
                 # Panel for search results
                 dbc.Col(width=8, children=[
-                    
+                    html.Div(id="results-container", className="results-container", children=[
+                        # Dynamically populated with search results...
+                    ])
                 ])
             ])
-        ])
+        ]),
+        
+        # Modals
+        dbc.Modal(id="loading-modal", size="md", centered=True, is_open=False, scrollable=True, keyboard=False, backdrop="static", children=[
+            dbc.ModalHeader(close_button=False, children=[
+                dbc.ModalTitle(html.Div([
+                    html.Div(children=[dbc.Spinner(color="primary"), " Searching..."])
+                ]))
+            ]),
+            dbc.ModalBody("This process may take 30-60 seconds. Please wait...", id="loading-modal-body")
+        ]),
+        
+        # Data
+        dcc.Store(id="search-started"),
+        dcc.Store(id="search-complete"),
+        dcc.Store(id="search-results"),
+        dcc.Store(id="test")
     ])
 
+app.config.suppress_callback_exceptions = True
 app.layout = serve_layout
 
 @app.callback(Output("experimental-spectrum", "figure"),
+              Output("plot-container", "style"),
               Input("mass-spectrum-input", "value"), prevent_initial_call=True)
 def render_user_inputted_spectrum(peak_data):
     
     """
-    Renders plot for user-inputted mass spectrum.
+    Renders plot for user-inputted mass spectrum
     """
     
-    # Convert string into object
-    mass_spectrum = ast.literal_eval(peak_data)
+    try:
+        # Convert string into object
+        mass_spectrum = ast.literal_eval(peak_data)
+        
+        # Initialize DataFrame
+        df_peaks = pd.DataFrame(np.array(mass_spectrum), columns=["m/z", "intensity"])
+        
+        # Render plot
+        return render_mass_spectrum(df_peaks), {"display": "block"}
     
-    # Initialize DataFrame
-    df_peaks = pd.DataFrame(np.array(mass_spectrum), columns=["m/z", "intensity"])
+    except:
+        return None, {"display": "none"}
+
+
+@app.callback(Output("search-started", "data"),
+              Input("search-button", "n_clicks"),
+              Input("loading-modal", "is_open"), prevent_initial_call=True, suppress_callback_exceptions=True)
+def flag_search_started(button_click, test):
     
-    # Render plot
-    return render_mass_spectrum(df_peaks)
+    return True
+
+
+@app.callback(Output("loading-modal", "is_open"),
+              Input("search-started", "data"),
+              Input("search-complete", "data"), prevent_initial_call=True, suppress_callback_exceptions=True)
+def toggle_loading_modal(search_started, search_complete):
+    
+    trigger = ctx.triggered_id
+    
+    if trigger == "search-started":
+        return True
+    elif trigger == "search-complete":
+        return False
+
+
+@app.callback(Output("results-container", "children"),
+              Input("search-started", "data"), prevent_initial_call=True)
+def search_libraries(search_started):
+    
+    """
+    Performs library search to generate ranked list of spectral matches
+    """
+    
+    # Load spectral library
+    library = ms.importing.load_from_json("libraries/reference_library.json")
+    
+    # Apply filters to clean and enhance each spectrum
+    spectra = []
+    for spectrum in library:
+        spectrum = ms.filtering.default_filters(spectrum)
+        spectrum = ms.filtering.normalize_intensities(spectrum)
+        spectra.append(spectrum)
+        
+    scores = ms.calculate_scores(
+        references=spectra, 
+        queries=spectra, 
+        similarity_function=ms.similarity.CosineGreedy()
+    )
+
+    # Query library for user-inputted spectrum
+    query = spectra[15]
+    best_matches = scores.scores_by_query(query, 'CosineGreedy_score', sort=True)
+    
+    results = []
+    
+    for x in range(0, 10):
+        
+        result = dbc.Card(className="mb-3", children=[
+            dbc.CardBody([
+                "Molecule " + str(x)
+            ]),
+        ])
+        
+        results.append(result)
+    
+    time.sleep(5)
+    return results
+
+
+@app.callback(Output("search-complete", "data"),
+              Input("results-container", "children"), prevent_initial_call=True)
+def flag_search_complete(results):
+    
+    return True
 
 
 if __name__ == "__main__":
