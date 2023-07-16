@@ -175,46 +175,63 @@ def toggle_loading_modal(search_started, search_complete):
 
 
 @app.callback(Output("results-container", "children"),
-              Input("search-started", "data"), prevent_initial_call=True)
-def search_libraries(search_started):
+              Input("search-started", "data"), 
+              State("mass-spectrum-input", "value"), prevent_initial_call=True)
+def search_libraries(search_started, peak_data):
     
     """
-    Performs library search to generate ranked list of spectral matches
+    Searches user-inputted spectrum against library / database to generate ranked list of spectral matches
     """
+    
+    # Sample spectrum
+    # [[67.142, 7.869], [79.134, 5.553], [91.056, 5.578], [105.039, 22.809], [115.033, 75.299], [116.993, 45.418], [130.149, 7.47], [131.984, 47.809], [133.085, 11.454], [142.064, 21.414], [143.274, 9.163], [159.734, 100.0]]
+    
+    # Load mass spectrum
+    peak_data = ast.literal_eval(peak_data)
+    
+    experimental_spectrum = ms.Spectrum(
+        mz=np.array(peak_data)[:, 0],
+        intensities=np.array(peak_data)[:, 1],
+        metadata={}
+    )
     
     # Load spectral library
     library = ms.importing.load_from_json("libraries/reference_library.json")
     
     # Apply filters to clean and enhance each spectrum
-    spectra = []
+    reference_spectra = []
     for spectrum in library:
         spectrum = ms.filtering.default_filters(spectrum)
         spectrum = ms.filtering.normalize_intensities(spectrum)
-        spectra.append(spectrum)
-        
+        reference_spectra.append(spectrum)
+    
+    # Calculate similarity scores against library
     scores = ms.calculate_scores(
-        references=spectra, 
-        queries=spectra, 
+        references=reference_spectra, 
+        queries=[experimental_spectrum],
         similarity_function=ms.similarity.CosineGreedy()
     )
 
     # Query library for user-inputted spectrum
-    query = spectra[15]
-    best_matches = scores.scores_by_query(query, 'CosineGreedy_score', sort=True)
+    best_matches = scores.scores_by_query(experimental_spectrum, 'CosineGreedy_score', sort=True)
     
     results = []
     
-    for x in range(0, 10):
+    for (reference, score) in best_matches:
         
         result = dbc.Card(className="mb-3", children=[
             dbc.CardBody([
-                "Molecule " + str(x)
+                html.H3(reference.metadata["compound_name"]),
+                html.H4(f"Similarity score: {score[0]:.4f}"),
+                dbc.Label(f"INCHIKEY: {reference.metadata['inchikey_inchi']}"), html.Br(),
+                dbc.Label(f"Precursor mass: {reference.metadata['precursor_mz']}"), html.Br(),
+                dbc.Label(f"Ion mode: {reference.metadata['ionmode']}"), html.Br(),
+                dbc.Label(f"Instrument: {reference.metadata['instrument']}"), html.Br(),
             ]),
         ])
         
         results.append(result)
     
-    time.sleep(5)
     return results
 
 
