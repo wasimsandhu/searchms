@@ -123,8 +123,7 @@ def serve_layout():
         # Data
         dcc.Store(id="search-started"),
         dcc.Store(id="search-complete"),
-        dcc.Store(id="search-results"),
-        dcc.Store(id="test")
+        dcc.Store(id="search-results")
     ])
 
 app.config.suppress_callback_exceptions = True
@@ -132,12 +131,17 @@ app.layout = serve_layout
 
 @app.callback(Output("experimental-spectrum", "figure"),
               Output("plot-container", "style"),
+              Output("mass-spectrum-input", "valid"),
+              Output("mass-spectrum-input", "invalid"),
               Input("mass-spectrum-input", "value"), prevent_initial_call=True)
 def render_user_inputted_spectrum(peak_data):
     
     """
     Renders plot for user-inputted mass spectrum
     """
+    
+    # Sample spectrum
+    # [[67.142, 7.869], [79.134, 5.553], [91.056, 5.578], [105.039, 22.809], [115.033, 75.299], [116.993, 45.418], [130.149, 7.47], [131.984, 47.809], [133.085, 11.454], [142.064, 21.414], [143.274, 9.163], [159.734, 100.0]]
     
     try:
         # Convert string into object
@@ -147,16 +151,16 @@ def render_user_inputted_spectrum(peak_data):
         df_peaks = pd.DataFrame(np.array(mass_spectrum), columns=["m/z", "intensity"])
         
         # Render plot
-        return render_mass_spectrum(df_peaks), {"display": "block"}
+        return render_mass_spectrum(df_peaks), {"display": "block"}, True, False
     
     except:
-        return None, {"display": "none"}
+        return None, {"display": "none"}, False, True
 
 
 @app.callback(Output("search-started", "data"),
               Input("search-button", "n_clicks"),
               Input("loading-modal", "is_open"), prevent_initial_call=True, suppress_callback_exceptions=True)
-def flag_search_started(button_click, test):
+def flag_search_started(button_click, modal_is_open):
     
     return True
 
@@ -213,11 +217,13 @@ def search_libraries(search_started, peak_data):
     )
 
     # Query library for user-inputted spectrum
-    best_matches = scores.scores_by_query(experimental_spectrum, 'CosineGreedy_score', sort=True)
+    best_matches = scores.scores_by_query(experimental_spectrum, 'CosineGreedy_score', sort=True)[0:15]
     
     results = []
     
     for (reference, score) in best_matches:
+        
+        df_peaks = pd.DataFrame({"m/z": reference.peaks.mz, "intensity": reference.peaks.intensities})
         
         result = dbc.Card(className="mb-3", children=[
             dbc.CardBody([
@@ -227,6 +233,7 @@ def search_libraries(search_started, peak_data):
                 dbc.Label(f"Precursor mass: {reference.metadata['precursor_mz']}"), html.Br(),
                 dbc.Label(f"Ion mode: {reference.metadata['ionmode']}"), html.Br(),
                 dbc.Label(f"Instrument: {reference.metadata['instrument']}"), html.Br(),
+                dcc.Graph(figure=render_mass_spectrum(df_peaks))
             ]),
         ])
         
