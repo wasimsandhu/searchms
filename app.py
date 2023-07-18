@@ -43,11 +43,12 @@ def serve_layout():
                     
                     # Input group for loading mass spectrum
                     html.Div([
-                        dbc.Label("Mass spectrum (.msp, .json, .mgf)"),
+                        dbc.Label("Enter mass spectrum (.msp, .json, .mgf)"),
                         dbc.InputGroup([
                             dbc.Textarea(rows=5, id="mass-spectrum-input", placeholder="Enter your mass spectrum here"),
                             dbc.FormFeedback("Looks good!", type="valid"),
                             dbc.FormFeedback("Please ensure the peak table of your mass spectrum is in one of the accepted formats.", type="invalid"),
+                            dbc.Tooltip("Please enter the text string representing the mass spectrum you'd like to search against the database.", target="mass-spectrum-input"),
                         ]),
                     ]), html.Br(),
                     
@@ -57,13 +58,13 @@ def serve_layout():
                     ]),
                     
                     # Input group for loading reference library
-                    html.Div([
-                        dbc.Label("Molecule name (optional)"),
-                        dbc.InputGroup([
-                            dbc.Input(id="molecule-name", placeholder="Enter molecule name, if known"),
-                            dbc.FormFeedback("Looks good!", type="valid")
-                        ]),
-                    ]), html.Br(),
+                    # html.Div([
+                    #     dbc.Label("Molecule name (optional)"),
+                    #     dbc.InputGroup([
+                    #         dbc.Input(id="molecule-name", placeholder="Enter molecule name, if known"),
+                    #         dbc.FormFeedback("Looks good!", type="valid")
+                    #     ]),
+                    # ]), html.Br(),
                     
                     # Input group for loading reference library
                     html.Div([
@@ -72,7 +73,7 @@ def serve_layout():
                             dbc.Input(id="reference-library", placeholder="No file selected"),
                             dbc.Button(dcc.Upload(
                                 id="load-reference-library-button",
-                                accept="text/plain, .msp",
+                                accept="text/plain, .msp, .json, .mgf",
                                 children=[html.A("Browse Files")]),
                                 color="secondary"),
                             dbc.FormFeedback("Looks good!", type="valid"),
@@ -86,7 +87,6 @@ def serve_layout():
                     html.Div([
                         dbc.Label("Search against public databases"),
                         dbc.Select(id="reference-database", placeholder="Choose public database...", options=[
-                            {"label": "", "value": ""},
                             {"label": "GNPS", "value": "GNPS"},
                             {"label": "MONA", "value": "MONA"},
                             {"label": "MassBank", "value": "MassBank"},
@@ -97,7 +97,7 @@ def serve_layout():
                     ]), html.Br(),
                     
                     html.Div(className="d-grid gap-2", children=[
-                        dbc.Button("Search", id="search-button", color="primary")
+                        dbc.Button("Search", id="search-button", disabled=True, color="primary")
                     ]),
                 ]),
                 
@@ -117,7 +117,7 @@ def serve_layout():
                     html.Div(children=[dbc.Spinner(color="primary"), " Searching..."])
                 ]))
             ]),
-            dbc.ModalBody("This process may take 30-60 seconds. Please wait...", id="loading-modal-body")
+            dbc.ModalBody("This process may a few seconds. Please wait...", id="loading-modal-body")
         ]),
         
         # Data
@@ -128,6 +128,35 @@ def serve_layout():
 
 app.config.suppress_callback_exceptions = True
 app.layout = serve_layout
+
+@app.callback(Output("reference-database", "valid"),
+              Input("reference-database", "value"), prevent_initial_call=True)
+def database_dropdown_validation(reference_database):
+    
+    """
+    Validates selected database
+    """
+    
+    if reference_database is not None:
+        return True
+    else:
+        return False
+
+
+@app.callback(Output("search-button", "disabled"),
+              Input("mass-spectrum-input", "valid"),
+              Input("reference-database", "valid"), prevent_initial_call=True)
+def validate_user_input(mass_spectrum_valid, reference_database_valid):
+    
+    """
+    Enables search button if mass spectrum and reference library are valid
+    """
+    
+    if mass_spectrum_valid and reference_database_valid:
+        return False
+    else:
+        return True
+
 
 @app.callback(Output("experimental-spectrum", "figure"),
               Output("plot-container", "style"),
@@ -199,6 +228,8 @@ def search_libraries(search_started, peak_data):
         metadata={}
     )
     
+    mz_range = [experimental_spectrum.mz.min() - 10, experimental_spectrum.mz.max() + 10]
+    
     # Load spectral library
     library = ms.importing.load_from_json("libraries/reference_library.json")
     
@@ -211,7 +242,7 @@ def search_libraries(search_started, peak_data):
     
     # Calculate similarity scores against library
     scores = ms.calculate_scores(
-        references=reference_spectra, 
+        references=reference_spectra,
         queries=[experimental_spectrum],
         similarity_function=ms.similarity.CosineGreedy()
     )
@@ -227,13 +258,26 @@ def search_libraries(search_started, peak_data):
         
         result = dbc.Card(className="mb-3", children=[
             dbc.CardBody([
-                html.H3(reference.metadata["compound_name"]),
-                html.H4(f"Similarity score: {score[0]:.4f}"),
-                dbc.Label(f"INCHIKEY: {reference.metadata['inchikey_inchi']}"), html.Br(),
-                dbc.Label(f"Precursor mass: {reference.metadata['precursor_mz']}"), html.Br(),
-                dbc.Label(f"Ion mode: {reference.metadata['ionmode']}"), html.Br(),
-                dbc.Label(f"Instrument: {reference.metadata['instrument']}"), html.Br(),
-                dcc.Graph(figure=render_mass_spectrum(df_peaks))
+                dbc.Row([
+                    dbc.Col(width=4, children=[
+                        html.H3(reference.metadata["compound_name"]),
+                        html.H4(f"Similarity score: {score[0]:.4f}"),
+                        html.P(f"{reference.metadata['compound_name']} is an extraordinary molecule that has captivated the scientific community with its remarkable properties and potential applications..."),
+                        dbc.Accordion(start_collapsed=True, children=[
+                            dbc.AccordionItem(title="Metadata", children=[
+                                dbc.ListGroup([
+                                    dbc.ListGroupItem(f"INCHIKEY: {reference.metadata['inchikey_inchi']}"),
+                                    dbc.ListGroupItem(f"Precursor mass: {reference.metadata['precursor_mz']}"),
+                                    dbc.ListGroupItem(f"Ion mode: {reference.metadata['ionmode']}"),
+                                    dbc.ListGroupItem(f"Instrument: {reference.metadata['instrument']}"),
+                                ])
+                            ])
+                        ])
+                    ]),
+                    dbc.Col(width=8, children=[
+                        dcc.Graph(figure=render_mass_spectrum(df_peaks, title="Reference Spectrum", range=mz_range))
+                    ]),
+                ])
             ]),
         ])
         
@@ -251,11 +295,11 @@ def flag_search_complete(results):
 
 if __name__ == "__main__":
     
-    # if sys.platform == "win32":
-    #     chrome_path = "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe"
-    #     webbrowser.register("chrome", None, webbrowser.BackgroundBrowser(chrome_path))
-    #     webbrowser.get("chrome").open("http://localhost:8050/")
-    # elif sys.platform == "darwin":
-    #     webbrowser.get("chrome").open("http://localhost:8050/", new=1)
+    if sys.platform == "win32":
+        chrome_path = "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe"
+        webbrowser.register("chrome", None, webbrowser.BackgroundBrowser(chrome_path))
+        webbrowser.get("chrome").open("http://localhost:8050/")
+    elif sys.platform == "darwin":
+        webbrowser.get("chrome").open("http://localhost:8050/", new=1)
         
-    app.run(debug=True)
+    app.run(debug=False)

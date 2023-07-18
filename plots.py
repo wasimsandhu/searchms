@@ -2,7 +2,7 @@ import plotly.express as px
 from plotly.subplots import make_subplots
 import plotly.graph_objects as go
 
-def render_mass_spectrum(df_peaks):
+def render_mass_spectrum(df_peaks, title="Experimental Spectrum", range=None):
     
     """
     Renders plot of mass spectrum.
@@ -14,12 +14,14 @@ def render_mass_spectrum(df_peaks):
         plotly.Figure: Mass spectrum
     """
     
-    min_mz = df_peaks["m/z"].min() - 10
-    max_mz = df_peaks["m/z"].max() + 10
+    if range is None:
+        min_mz = df_peaks["m/z"].min() - 10
+        max_mz = df_peaks["m/z"].max() + 10
+        range = [min_mz, max_mz]
     
-    plot = px.bar(df_peaks, title="Experimental Spectrum", x="m/z", y="intensity", height=400)
+    plot = px.bar(df_peaks, title=title, x="m/z", y="intensity", height=400)
     plot.update_layout(showlegend=False, transition_duration=500, clickmode="event", margin=dict(t=75, b=75, l=0, r=0))
-    plot.update_xaxes(title="", range=[min_mz, max_mz], side="bottom")
+    plot.update_xaxes(title="", range=range, side="bottom")
     plot.update_yaxes(title="")
     plot.update_traces(textposition="outside", hovertemplate="m/z: %{x}<br>Intensity: %{y}<br>")
     
