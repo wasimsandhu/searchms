@@ -1,8 +1,7 @@
-import sys, webbrowser, time, json, ast
+import sys, webbrowser, ast, requests
 from plots import *
 
 from dash import Dash, html, dcc, Output, Input, State, ctx
-from dash.exceptions import PreventUpdate
 import dash_bootstrap_components as dbc
 import pandas as pd
 import numpy as np
@@ -249,39 +248,50 @@ def search_libraries(search_started, peak_data):
 
     # Query library for user-inputted spectrum
     best_matches = scores.scores_by_query(experimental_spectrum, 'CosineGreedy_score', sort=True)[0:15]
-    
     results = []
-    
+
     for (reference, score) in best_matches:
-        
         df_peaks = pd.DataFrame({"m/z": reference.peaks.mz, "intensity": reference.peaks.intensities})
         
-        result = dbc.Card(className="mb-3", children=[
-            dbc.CardBody([
-                dbc.Row([
-                    dbc.Col(width=4, children=[
-                        html.H3(reference.metadata["compound_name"]),
-                        html.H4(f"Similarity score: {score[0]:.4f}"),
-                        html.P(f"{reference.metadata['compound_name']} is an extraordinary molecule that has captivated the scientific community with its remarkable properties and potential applications..."),
+        try:
+            # CS 361 microservice: Query PubChem for molecule information
+            compound_name = reference.metadata["compound_name"]
+            molecule_data = requests.get(f"http://127.0.0.1:3000/query/{compound_name}").json()
+            
+            result = dbc.Card(className="mb-3", children=[
+                dbc.CardBody([
+                    dbc.Row([
+                        dbc.Col(width=4, children=[
+                            html.H3(compound_name),
+                            html.H4(f"Similarity score: {score[0]:.4f}"),
+                            html.P(molecule_data["description"]),
+                        ]),
+                        dbc.Col(width=8, children=[
+                            dcc.Graph(figure=render_mass_spectrum(df_peaks, title="Reference Spectrum", range=mz_range))
+                        ]),
+                    ]),
+                    dbc.Row([
                         dbc.Accordion(start_collapsed=True, children=[
                             dbc.AccordionItem(title="Metadata", children=[
                                 dbc.ListGroup([
-                                    dbc.ListGroupItem(f"INCHIKEY: {reference.metadata['inchikey_inchi']}"),
-                                    dbc.ListGroupItem(f"Precursor mass: {reference.metadata['precursor_mz']}"),
-                                    dbc.ListGroupItem(f"Ion mode: {reference.metadata['ionmode']}"),
-                                    dbc.ListGroupItem(f"Instrument: {reference.metadata['instrument']}"),
+                                    dbc.ListGroupItem(f'Molecular formula: {molecule_data["molecular_formula"]}'),
+                                    dbc.ListGroupItem(f'Molecular weight: {molecule_data["molecular_weight"]}'),
+                                    dbc.ListGroupItem(f'Monoisotopic mass: {molecule_data["monoisotopic_mass"]}'),
+                                    dbc.ListGroupItem(f'Precursor mass: {reference.metadata["precursor_mz"]}'),
+                                    dbc.ListGroupItem(f'INCHIKEY: {reference.metadata["precursor_mz"]}'),
+                                    dbc.ListGroupItem(f'Charge: {molecule_data["inchikey"]}'),
+                                    dbc.ListGroupItem(f'Ion mode: {reference.metadata["ionmode"]}'),
+                                    dbc.ListGroupItem(f'Instrument: {reference.metadata["instrument"]}'),
                                 ])
                             ])
                         ])
-                    ]),
-                    dbc.Col(width=8, children=[
-                        dcc.Graph(figure=render_mass_spectrum(df_peaks, title="Reference Spectrum", range=mz_range))
-                    ]),
-                ])
-            ]),
-        ])
-        
-        results.append(result)
+                    ])
+                ]),
+            ])
+            results.append(result)
+            
+        except Exception as error:
+            print(error)
     
     return results
 
